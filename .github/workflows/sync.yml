@@ -1,0 +1,38 @@
+name: Sync Strava to Notion
+
+on:
+  # Run every hour
+  schedule:
+    - cron: '0 * * * *'
+  
+  # Allow manual trigger
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: Run sync
+        env:
+          STRAVA_CLIENT_ID: ${{ secrets.STRAVA_CLIENT_ID }}
+          STRAVA_CLIENT_SECRET: ${{ secrets.STRAVA_CLIENT_SECRET }}
+          STRAVA_REFRESH_TOKEN: ${{ secrets.STRAVA_REFRESH_TOKEN }}
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          NOTION_ACTIVITIES_DB_ID: ${{ secrets.NOTION_ACTIVITIES_DB_ID }}
+          NOTION_PLANNED_DB_ID: ${{ secrets.NOTION_PLANNED_DB_ID }}
+        run: python sync.py
