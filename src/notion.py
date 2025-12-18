@@ -135,6 +135,7 @@ class NotionClient:
         }
         
         # Add date if available
+        # Strava returns ISO 8601 format which is compatible with Notion's date format
         if "start_date" in activity and activity["start_date"]:
             properties["Date"] = {
                 "date": {

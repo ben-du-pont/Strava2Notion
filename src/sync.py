@@ -107,7 +107,12 @@ def sync_activities(days_back: int = 7, dry_run: bool = False) -> Dict[str, int]
 def main():
     """Main entry point for the sync script."""
     # Parse command line arguments
-    days_back = int(os.getenv("DAYS_BACK", "7"))
+    try:
+        days_back = int(os.getenv("DAYS_BACK", "7"))
+    except (ValueError, TypeError):
+        print("Warning: Invalid DAYS_BACK value, using default of 7 days")
+        days_back = 7
+    
     dry_run = os.getenv("DRY_RUN", "false").lower() == "true"
     
     print("=" * 60)

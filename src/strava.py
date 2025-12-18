@@ -11,6 +11,8 @@ class StravaClient:
     """Client for interacting with the Strava API."""
     
     BASE_URL = "https://www.strava.com/api/v3"
+    # Activity types as returned by Strava API
+    # "Ride" is the official Strava type for cycling activities
     TRIATHLON_ACTIVITY_TYPES = ["Swim", "Ride", "Run"]
     
     def __init__(self, client_id: Optional[str] = None, client_secret: Optional[str] = None, 
