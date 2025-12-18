@@ -132,13 +132,16 @@ class NotionClient:
                 "select": {
                     "name": activity.get("type", activity.get("sport_type", "Unknown"))
                 }
-            },
-            "Date": {
-                "date": {
-                    "start": activity.get("start_date", "")
-                }
             }
         }
+        
+        # Add date if available
+        if "start_date" in activity and activity["start_date"]:
+            properties["Date"] = {
+                "date": {
+                    "start": activity["start_date"]
+                }
+            }
         
         # Add distance if available (convert meters to kilometers)
         if "distance" in activity:

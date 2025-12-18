@@ -7,8 +7,25 @@ import sys
 from datetime import datetime, timedelta
 from typing import List, Dict
 
-from strava import StravaClient
-from notion import NotionClient
+try:
+    from strava import StravaClient
+    from notion import NotionClient
+except ImportError:
+    # Handle case when running as a script
+    import importlib.util
+    import pathlib
+    
+    current_dir = pathlib.Path(__file__).parent.resolve()
+    
+    spec = importlib.util.spec_from_file_location("strava", current_dir / "strava.py")
+    strava = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(strava)
+    StravaClient = strava.StravaClient
+    
+    spec = importlib.util.spec_from_file_location("notion", current_dir / "notion.py")
+    notion = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(notion)
+    NotionClient = notion.NotionClient
 
 
 def sync_activities(days_back: int = 7, dry_run: bool = False) -> Dict[str, int]:

@@ -12,6 +12,7 @@ class StravaClient:
     """Client for interacting with the Strava API."""
     
     BASE_URL = "https://www.strava.com/api/v3"
+    TRIATHLON_ACTIVITY_TYPES = ["Swim", "Ride", "Run"]
     
     def __init__(self, client_id: Optional[str] = None, client_secret: Optional[str] = None, 
                  refresh_token: Optional[str] = None):
@@ -104,18 +105,22 @@ class StravaClient:
         
         return response.json()
     
-    def filter_triathlon_activities(self, activities: List[Dict]) -> List[Dict]:
+    def filter_triathlon_activities(self, activities: List[Dict], 
+                                   activity_types: Optional[List[str]] = None) -> List[Dict]:
         """
         Filter activities to include only triathlon-related activities.
         
         Args:
             activities: List of activity dictionaries
+            activity_types: List of activity types to include (defaults to TRIATHLON_ACTIVITY_TYPES)
             
         Returns:
             Filtered list of triathlon activities (swim, bike, run)
         """
-        triathlon_types = ["Swim", "Ride", "Run"]
+        if activity_types is None:
+            activity_types = self.TRIATHLON_ACTIVITY_TYPES
+            
         return [
             activity for activity in activities 
-            if activity.get("type") in triathlon_types or activity.get("sport_type") in triathlon_types
+            if activity.get("type") in activity_types or activity.get("sport_type") in activity_types
         ]
