@@ -4,7 +4,6 @@ Notion API integration module for managing triathlon training database.
 
 import os
 import requests
-from datetime import datetime
 from typing import Dict, List, Optional
 
 

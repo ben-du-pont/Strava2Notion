@@ -4,7 +4,6 @@ Strava API integration module for fetching triathlon activities.
 
 import os
 import requests
-from datetime import datetime
 from typing import Dict, List, Optional
 
 
