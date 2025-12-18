@@ -102,9 +102,7 @@ class StravaClient:
             response.raise_for_status()
 
             activities = response.json()
-            logger.info(
-                f"Successfully fetched {
-                    len(activities)} activities from Strava")
+            logger.info(f"Successfully fetched {len(activities)} activities from Strava")
             return activities
 
         except requests.exceptions.RequestException as e:

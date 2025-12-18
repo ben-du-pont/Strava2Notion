@@ -171,9 +171,7 @@ class NotionClient:
             )
 
             page_id = response['id']
-            logger.info(
-                f"Successfully created {sport_type} activity in Notion: {
-                    activity_data.get('name')}")
+            logger.info(f"Successfully created {sport_type} activity in Notion: {activity_data.get('name')}")
             return page_id
 
         except Exception as e:
