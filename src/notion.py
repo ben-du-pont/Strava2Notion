@@ -255,7 +255,7 @@ class NotionClient:
 
         # Elevation gain
         if "total_elevation_gain" in activity:
-            properties["Elevation (m)"] = {
+            properties["Elevation Gain (m)"] = {
                 "number": round(activity["total_elevation_gain"], 0)
             }
 
@@ -318,7 +318,7 @@ class NotionClient:
 
         # Elevation gain
         if "total_elevation_gain" in activity:
-            properties["Elevation (m)"] = {
+            properties["Elevation Gain (m)"] = {
                 "number": round(activity["total_elevation_gain"], 0)
             }
 
