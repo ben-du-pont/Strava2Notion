@@ -90,7 +90,23 @@ class NotionClient:
             "properties": properties
         }
 
+        # DEBUG: Print payload details
+        print(f"  [DEBUG] Creating page in database: {db_id}")
+        print(f"  [DEBUG] Number of properties: {len(properties)}")
+        print(f"  [DEBUG] Property keys: {list(properties.keys())}")
+
+        # Print each property in detail
+        import json
+        print(f"  [DEBUG] Full payload:")
+        print(json.dumps(payload, indent=2))
+
         response = requests.post(url, headers=headers, json=payload)
+
+        # DEBUG: Print response details if error
+        if not response.ok:
+            print(f"  [DEBUG] Response status: {response.status_code}")
+            print(f"  [DEBUG] Response body: {response.text}")
+
         response.raise_for_status()
 
         return response.json()
@@ -134,6 +150,12 @@ class NotionClient:
         # This allows "Ride" -> "Bike" conversion
         display_sport_type = notion_sport_type if notion_sport_type else strava_sport_type
 
+        # DEBUG: Print activity details
+        print(f"  [DEBUG] Converting activity to properties:")
+        print(f"  [DEBUG]   Strava sport type: {strava_sport_type}")
+        print(f"  [DEBUG]   Notion sport type: {display_sport_type}")
+        print(f"  [DEBUG]   Activity name: {activity.get('name', 'Untitled Activity')}")
+
         # Base properties common to all activities
         properties = {
             "Name": {
@@ -169,11 +191,19 @@ class NotionClient:
 
         # Sport-specific field mappings (use Strava type for logic)
         if strava_sport_type == "Run":
-            properties.update(self._get_run_properties(activity))
+            sport_props = self._get_run_properties(activity)
+            print(f"  [DEBUG]   Added {len(sport_props)} run-specific properties")
+            properties.update(sport_props)
         elif strava_sport_type == "Ride":
-            properties.update(self._get_ride_properties(activity))
+            sport_props = self._get_ride_properties(activity)
+            print(f"  [DEBUG]   Added {len(sport_props)} ride-specific properties")
+            properties.update(sport_props)
         elif strava_sport_type == "Swim":
-            properties.update(self._get_swim_properties(activity))
+            sport_props = self._get_swim_properties(activity)
+            print(f"  [DEBUG]   Added {len(sport_props)} swim-specific properties")
+            properties.update(sport_props)
+
+        print(f"  [DEBUG]   Total properties to send: {len(properties)}")
 
         return properties
 
