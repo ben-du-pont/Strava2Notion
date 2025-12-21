@@ -145,12 +145,12 @@ class NotionClient:
                     }
                 ]
             },
-            # Maps to "Color Select" field in your Notion (Run, Swim, Bike, etc.)
-            "Color Select": {
-                "select": {
-                    "name": display_sport_type
-                }
-            }
+            # # Maps to "Color Select" field in your Notion (Run, Swim, Bike, etc.)
+            # "Color Select": {
+            #     "select": {
+            #         "name": display_sport_type
+            #     }
+            # }
         }
 
         # Add date if available (Strava returns ISO 8601 format)
