@@ -14,7 +14,7 @@ class NotionClient:
     NOTION_VERSION = "2022-06-28"
 
     def __init__(self, token: Optional[str] = None, activities_db_id: Optional[str] = None,
-                 planned_db_id: Optional[str] = None):
+                 planned_db_id: Optional[str] = None, sports_db_id: Optional[str] = None):
         """
         Initialize the Notion client.
 
@@ -22,11 +22,16 @@ class NotionClient:
             token: Notion integration token (defaults to NOTION_TOKEN env var)
             activities_db_id: Activities database ID (defaults to NOTION_ACTIVITIES_DB_ID env var)
             planned_db_id: Planned activities database ID (defaults to NOTION_PLANNED_DB_ID env var)
+            sports_db_id: Sports database ID (defaults to NOTION_SPORTS_DB_ID env var)
         """
         self.token = token or os.getenv("NOTION_TOKEN")
         self.activities_db_id = activities_db_id or os.getenv("NOTION_ACTIVITIES_DB_ID")
         self.planned_db_id = planned_db_id or os.getenv("NOTION_PLANNED_DB_ID")
+        self.sports_db_id = sports_db_id or os.getenv("NOTION_SPORTS_DB_ID")
         self.database_id = self.activities_db_id  # For backwards compatibility
+
+        # Cache for sport page IDs (sport_name -> page_id)
+        self._sport_page_cache: Dict[str, str] = {}
         
     def _get_headers(self) -> Dict[str, str]:
         """Get headers for Notion API requests."""
@@ -205,6 +210,18 @@ class NotionClient:
             properties["Strava ID"] = {
                 "number": activity["id"]
             }
+
+        # Add Sport Type relation (link to Sports database)
+        sport_page_id = self.find_sport_page_id(display_sport_type)
+        if sport_page_id:
+            properties["Sport Type"] = {
+                "relation": [
+                    {"id": sport_page_id}
+                ]
+            }
+            print(f"  [DEBUG]   Linked to Sport Type: {display_sport_type}")
+        else:
+            print(f"  [DEBUG]   Could not find Sport Type page for: {display_sport_type}")
 
         # Sport-specific field mappings (use Strava type for logic)
         if strava_sport_type == "Run":
@@ -569,3 +586,39 @@ class NotionClient:
         }
 
         return self.update_page(planned_page_id, properties)
+
+    def find_sport_page_id(self, sport_name: str) -> Optional[str]:
+        """
+        Find a sport page ID by sport name from the Sports database.
+
+        Args:
+            sport_name: The sport name (e.g., "Run", "Bike", "Swim")
+
+        Returns:
+            Sport page ID if found, None otherwise
+        """
+        # Check cache first
+        if sport_name in self._sport_page_cache:
+            return self._sport_page_cache[sport_name]
+
+        if not self.sports_db_id:
+            print(f"  [WARNING] Sports database ID not configured, skipping Sport Type relation")
+            return None
+
+        # Query the Sports database for the matching sport name
+        filter_params = {
+            "property": "Name",
+            "title": {
+                "equals": sport_name
+            }
+        }
+
+        results = self.query_database(filter_params, database_id=self.sports_db_id)
+
+        if results:
+            sport_page_id = results[0]["id"]
+            # Cache the result
+            self._sport_page_cache[sport_name] = sport_page_id
+            return sport_page_id
+
+        return None

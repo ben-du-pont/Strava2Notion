@@ -44,6 +44,7 @@ jobs:
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
           NOTION_ACTIVITIES_DB_ID: ${{ secrets.NOTION_ACTIVITIES_DB_ID }}
           NOTION_PLANNED_DB_ID: ${{ secrets.NOTION_PLANNED_DB_ID }}
+          NOTION_SPORTS_DB_ID: ${{ secrets.NOTION_SPORTS_DB_ID }}
           DAYS_BACK: ${{ github.event.inputs.days_back || '7' }}
           DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
         run: |

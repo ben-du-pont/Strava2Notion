@@ -40,6 +40,7 @@ A Python application that automatically syncs your triathlon training activities
    - **Date** (Date)
    - **Strava ID** (Number) - for duplicate prevention
    - **Linked Planned Workout** (Relation to Planning Database)
+   - **Sport Type** (Relation to Sports Database)
 
    **Sport-specific fields**:
    - For Runs: `Distance (km)`, `Duration (min)`, `Average pace` (number), `Pace` (text), `Elevation (m)`, `Heart Rate Avg`, `Heart Rate Max`, `Average Cadence`, `Calories`
@@ -52,8 +53,12 @@ A Python application that automatically syncs your triathlon training activities
    - **Selection status** (Select field with "Done" option)
    - **Training Log Entries** (Relation back to Training Log)
 
-4. Share both databases with your integration
-5. Copy both database IDs from the URLs (the 32-character hex string)
+   **Sports Database** (sport types for categorization):
+   - **Name** (Title) - Create pages for: Run, Bike, Swim (and optionally: Abs, Stretching, Gym)
+   - This database is used to link activities to sport types for statistics and filtering
+
+4. Share all three databases with your integration
+5. Copy all three database IDs from the URLs (the 32-character hex string)
 
 ### 3. Configure GitHub Secrets
 
@@ -63,8 +68,9 @@ Add the following secrets to your GitHub repository (Settings → Secrets and va
 - `STRAVA_CLIENT_SECRET`: Your Strava application client secret
 - `STRAVA_REFRESH_TOKEN`: Your Strava refresh token
 - `NOTION_TOKEN`: Your Notion integration token
-- `NOTION_ACTIVITIES_DB_ID`: Your Activities database ID
-- `NOTION_PLANNED_DB_ID`: Your Planned Activities database ID
+- `NOTION_ACTIVITIES_DB_ID`: Your Training Log database ID
+- `NOTION_PLANNED_DB_ID`: Your Planning Database ID
+- `NOTION_SPORTS_DB_ID`: Your Sports database ID
 
 ### 4. Enable GitHub Actions
 
