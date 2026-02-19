@@ -13,11 +13,13 @@ class StravaClient:
     BASE_URL = "https://www.strava.com/api/v3"
     # Activity types as returned by Strava API
     # "Ride" is the official Strava type for cycling activities
-    TRIATHLON_ACTIVITY_TYPES = ["Swim", "Ride", "Run"]
+    # "VirtualRide" is used for indoor/virtual cycling (e.g. Zwift)
+    TRIATHLON_ACTIVITY_TYPES = ["Swim", "Ride", "VirtualRide", "Run"]
 
     # Mapping from Strava sport types to Notion sport types
     SPORT_TYPE_MAPPING = {
-        "Ride": "Bike",  # Strava uses "Ride", Notion uses "Bike"
+        "Ride": "Bike",        # Strava uses "Ride", Notion uses "Bike"
+        "VirtualRide": "Bike", # Virtual rides map to the same Bike category in Notion
         "Run": "Run",
         "Swim": "Swim"
     }
