@@ -440,3 +440,36 @@ options:
 # Note: Complex fields (start_latlng, end_latlng, map_polyline, splits,
 # segments, laps, best_efforts) require custom code to handle and are not
 # currently auto-supported.
+
+# ============================================================================
+# TRAINING ZONES
+# ============================================================================
+# Used by fetch_activities.py for HR zone breakdown and effort classification.
+# Update these when your fitness changes or after an FTP/CSS test.
+
+zones:
+  run:
+    # Heart rate zones (bpm). Based on: 23km @ 5:05/km HR157 = Z2 top.
+    Z1: [0, 145]      # Recovery
+    Z2: [145, 155]    # Aerobic / easy
+    Z3: [155, 165]    # Tempo
+    Z4: [165, 175]    # Threshold
+    Z5: [175, 999]    # VO2max
+
+  bike:
+    # HR-based until FTP is established (target: test ~2 weeks post-marathon).
+    # Replace with power zones once FTP is known.
+    Z1: [0, 130]      # Recovery
+    Z2: [130, 145]    # Aerobic base (current Zwift target)
+    Z3: [145, 158]    # Tempo
+    Z4: [158, 168]    # Threshold
+    Z5: [168, 999]    # VO2max
+
+  swim:
+    # Pace zones (seconds per 100m). Based on: 1:59 hard, ~2:15 base.
+    # CSS (Critical Swim Speed) = TBD — run a 400m/200m test to establish.
+    Z1: [150, 999]    # Easy / drill work  (>2:30/100m)
+    Z2: [135, 150]    # Base aerobic       (2:15–2:30/100m)
+    Z3: [119, 135]    # Tempo              (1:59–2:15/100m)
+    Z4: [109, 119]    # Threshold / CSS
+    Z5: [0, 109]      # Speed work

@@ -109,22 +109,10 @@ class NotionClient:
                 "emoji": icon
             }
 
-        # DEBUG: Print payload details
-        print(f"  [DEBUG] Creating page in database: {db_id}")
-        print(f"  [DEBUG] Number of properties: {len(properties)}")
-        print(f"  [DEBUG] Property keys: {list(properties.keys())}")
-
-        # Print each property in detail
-        import json
-        print(f"  [DEBUG] Full payload:")
-        print(json.dumps(payload, indent=2))
-
         response = requests.post(url, headers=headers, json=payload)
 
-        # DEBUG: Print response details if error
         if not response.ok:
-            print(f"  [DEBUG] Response status: {response.status_code}")
-            print(f"  [DEBUG] Response body: {response.text}")
+            print(f"  [WARN] Create page failed ({response.status_code}): {response.text}")
 
         response.raise_for_status()
 
@@ -173,13 +161,6 @@ class NotionClient:
         # Get emoji icon from config
         emoji_icon = self.config.get_sport_icon(display_sport_type) or "\U0001F3C3"
 
-        # DEBUG: Print activity details
-        print(f"  [DEBUG] Converting activity to properties:")
-        print(f"  [DEBUG]   Strava sport type: {strava_sport_type}")
-        print(f"  [DEBUG]   Notion sport type: {display_sport_type}")
-        print(f"  [DEBUG]   Emoji icon: {emoji_icon}")
-        print(f"  [DEBUG]   Activity name: {activity.get('name', 'Untitled Activity')}")
-
         properties = {}
 
         # Process common fields from config
@@ -212,19 +193,15 @@ class NotionClient:
         # Sport Type relation (link to Sports database)
         if "sport_type_relation" in common_fields:
             notion_field_name = common_fields["sport_type_relation"]
-            print(f"  [DEBUG]   Attempting to link Sport Type relation to field: '{notion_field_name}'")
 
             if not self.sports_db_id:
-                print(f"  [DEBUG]   WARNING: NOTION_SPORTS_DB_ID not configured - skipping Sport Type relation")
+                print(f"  [WARN] NOTION_SPORTS_DB_ID not configured — skipping Sport Type relation")
             else:
                 sport_page_id = self.find_sport_page_id(display_sport_type)
                 if sport_page_id:
                     properties[notion_field_name] = {
                         "relation": [{"id": sport_page_id}]
                     }
-                    print(f"  [DEBUG]   Successfully linked to Sport Type: {display_sport_type} (ID: {sport_page_id})")
-                else:
-                    print(f"  [DEBUG]   Could not find Sport Type page for: {display_sport_type}")
 
         # Sport Type select field (optional alternative to relation)
         if "sport_type_select" in common_fields:
@@ -299,10 +276,7 @@ class NotionClient:
 
         # Add sport-specific properties
         sport_props = self._get_sport_specific_properties(activity, display_sport_type, strava_sport_type)
-        print(f"  [DEBUG]   Added {len(sport_props)} sport-specific properties")
         properties.update(sport_props)
-
-        print(f"  [DEBUG]   Total properties to send: {len(properties)}")
 
         return properties, emoji_icon
 
@@ -447,224 +421,30 @@ class NotionClient:
 
         return properties
 
-    def _get_run_properties(self, activity: Dict) -> Dict:
+    def get_planned_description(self, planned_page: Dict) -> str:
         """
-        Get running-specific properties from Strava activity.
+        Extract a human-readable description from a planned workout page.
+        Combines the Focus and Notes for Coach / Self fields.
 
         Args:
-            activity: Strava activity dictionary
+            planned_page: Notion page object from the Planning database
 
         Returns:
-            Dictionary of run-specific Notion properties
+            Formatted description string, or "" if both fields are empty
         """
-        properties = {}
+        props = planned_page.get("properties", {})
 
-        # Distance (meters to kilometers)
-        if "distance" in activity:
-            properties["Distance (km)"] = {
-                "number": round(activity["distance"] / 1000, 2)
-            }
+        def extract_rich_text(field_name: str) -> str:
+            parts = props.get(field_name, {}).get("rich_text", [])
+            return "".join(p.get("text", {}).get("content", "") for p in parts).strip()
 
-        # Duration (seconds to minutes)
-        if "moving_time" in activity:
-            properties["Duration (min)"] = {
-                "number": round(activity["moving_time"] / 60, 1)
-            }
+        focus = extract_rich_text("Focus")
+        notes = extract_rich_text("Notes for Coach / Self")
 
-        # Average pace (min/km) - stored as number for calculations
-        if "distance" in activity and "moving_time" in activity and activity["distance"] > 0:
-            pace_min_per_km = (activity["moving_time"] / 60) / (activity["distance"] / 1000)
-            properties["Average pace"] = {
-                "number": round(pace_min_per_km, 2)
-            }
+        if focus and notes:
+            return f"{focus}\n{notes}"
+        return focus or notes
 
-        # Pace (text format for display, e.g., "5:30 /km")
-        if "distance" in activity and "moving_time" in activity and activity["distance"] > 0:
-            pace_min_per_km = (activity["moving_time"] / 60) / (activity["distance"] / 1000)
-            pace_minutes = int(pace_min_per_km)
-            pace_seconds = int((pace_min_per_km - pace_minutes) * 60)
-            properties["Pace"] = {
-                "rich_text": [
-                    {
-                        "text": {
-                            "content": f"{pace_minutes}:{pace_seconds:02d} /km"
-                        }
-                    }
-                ]
-            }
-
-        # Elevation gain
-        if "total_elevation_gain" in activity:
-            properties["Elevation Gain (m)"] = {
-                "number": round(activity["total_elevation_gain"], 0)
-            }
-
-        # Heart rate - using your field name "Heart Rate Avg"
-        if "average_heartrate" in activity:
-            properties["Heart Rate Avg"] = {
-                "number": round(activity["average_heartrate"], 0)
-            }
-
-        # Max heart rate
-        if "max_heartrate" in activity:
-            properties["Heart Rate Max"] = {
-                "number": round(activity["max_heartrate"], 0)
-            }
-
-        # Average cadence
-        if "average_cadence" in activity:
-            properties["Average Cadence"] = {
-                "number": round(activity["average_cadence"] * 2, 0)  # Strava returns steps per second, multiply by 2 for SPM
-            }
-
-        # Calories
-        if "calories" in activity:
-            properties["Calories"] = {
-                "number": round(activity["calories"], 0)
-            }
-
-        return properties
-
-    def _get_ride_properties(self, activity: Dict) -> Dict:
-        """
-        Get cycling-specific properties from Strava activity.
-
-        Args:
-            activity: Strava activity dictionary
-
-        Returns:
-            Dictionary of cycling-specific Notion properties
-        """
-        properties = {}
-
-        # Distance (meters to kilometers)
-        if "distance" in activity:
-            properties["Distance (km)"] = {
-                "number": round(activity["distance"] / 1000, 2)
-            }
-
-        # Duration (seconds to minutes)
-        if "moving_time" in activity:
-            properties["Duration (min)"] = {
-                "number": round(activity["moving_time"] / 60, 1)
-            }
-
-        # Speed (km/h) - calculated from distance and time
-        if "distance" in activity and "moving_time" in activity and activity["moving_time"] > 0:
-            speed_kmh = (activity["distance"] / 1000) / (activity["moving_time"] / 3600)
-            properties["Speed (km/h)"] = {
-                "number": round(speed_kmh, 2)
-            }
-
-        # Elevation gain
-        if "total_elevation_gain" in activity:
-            properties["Elevation Gain (m)"] = {
-                "number": round(activity["total_elevation_gain"], 0)
-            }
-
-        # Heart rate - using your field name "Heart Rate Avg"
-        if "average_heartrate" in activity:
-            properties["Heart Rate Avg"] = {
-                "number": round(activity["average_heartrate"], 0)
-            }
-
-        # Max heart rate
-        if "max_heartrate" in activity:
-            properties["Heart Rate Max"] = {
-                "number": round(activity["max_heartrate"], 0)
-            }
-
-        # Average power
-        if "average_watts" in activity:
-            properties["Power Avg (Watts)"] = {
-                "number": round(activity["average_watts"], 0)
-            }
-
-        # Max power
-        if "max_watts" in activity:
-            properties["Power Max (Watts)"] = {
-                "number": round(activity["max_watts"], 0)
-            }
-
-        # Average cadence
-        if "average_cadence" in activity:
-            properties["Average Cadence"] = {
-                "number": round(activity["average_cadence"], 0)  # RPM for cycling
-            }
-
-        # Calories
-        if "calories" in activity:
-            properties["Calories"] = {
-                "number": round(activity["calories"], 0)
-            }
-
-        return properties
-
-    def _get_swim_properties(self, activity: Dict) -> Dict:
-        """
-        Get swimming-specific properties from Strava activity.
-
-        Args:
-            activity: Strava activity dictionary
-
-        Returns:
-            Dictionary of swim-specific Notion properties
-        """
-        properties = {}
-
-        # Distance (meters to kilometers)
-        if "distance" in activity:
-            properties["Distance (km)"] = {
-                "number": round(activity["distance"] / 1000, 2)
-            }
-
-        # Duration (seconds to minutes)
-        if "moving_time" in activity:
-            properties["Duration (min)"] = {
-                "number": round(activity["moving_time"] / 60, 1)
-            }
-
-        # Swim Pace (min/100m) - as text format (e.g., "1:45")
-        if "distance" in activity and "moving_time" in activity and activity["distance"] > 0:
-            pace_min_per_100m = (activity["moving_time"] / 60) / (activity["distance"] / 100)
-            pace_minutes = int(pace_min_per_100m)
-            pace_seconds = int((pace_min_per_100m - pace_minutes) * 60)
-            properties["Swim Pace (min/100m)"] = {
-                "rich_text": [
-                    {
-                        "text": {
-                            "content": f"{pace_minutes}:{pace_seconds:02d}"
-                        }
-                    }
-                ]
-            }
-
-        # Heart rate (if available with swim tracking device)
-        if "average_heartrate" in activity:
-            properties["Heart Rate Avg"] = {
-                "number": round(activity["average_heartrate"], 0)
-            }
-
-        # Max heart rate
-        if "max_heartrate" in activity:
-            properties["Heart Rate Max"] = {
-                "number": round(activity["max_heartrate"], 0)
-            }
-
-        # Stroke rate (strokes per minute)
-        if "average_cadence" in activity:
-            properties["Stroke Rate"] = {
-                "number": round(activity["average_cadence"], 0)
-            }
-
-        # Calories
-        if "calories" in activity:
-            properties["Calories"] = {
-                "number": round(activity["calories"], 0)
-            }
-
-        return properties
-    
     def find_activity_by_strava_id(self, strava_id: int) -> Optional[Dict]:
         """
         Find a Notion page in Activities database by Strava activity ID.
@@ -734,11 +514,9 @@ class NotionClient:
         available_results = self._filter_available_planned_workouts(results)
 
         if available_results:
-            print(f"  [DEBUG] Found exact date match for planned workout")
             return available_results[0]
 
         # Step 2: Search within date range (±max_days_diff days)
-        print(f"  [DEBUG] No exact date match, searching ±{max_days_diff} days...")
 
         start_date = (activity_date - timedelta(days=max_days_diff)).isoformat()
         end_date = (activity_date + timedelta(days=max_days_diff)).isoformat()
@@ -772,7 +550,6 @@ class NotionClient:
         available_results = self._filter_available_planned_workouts(results)
 
         if not available_results:
-            print(f"  [DEBUG] No available planned workouts found within ±{max_days_diff} days")
             return None
 
         # Step 3: Find the closest match by date
@@ -788,7 +565,7 @@ class NotionClient:
         days_diff = get_date_diff(closest_match)
 
         planned_date = closest_match.get("properties", {}).get("Date", {}).get("date", {}).get("start", "")
-        print(f"  [DEBUG] Found nearby match: planned on {planned_date} ({days_diff} day(s) difference)")
+        print(f"  ⓘ Matched planned workout on {planned_date} ({days_diff} day(s) offset)")
 
         return closest_match
 

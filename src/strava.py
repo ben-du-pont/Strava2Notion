@@ -139,6 +139,55 @@ class StravaClient:
             if activity.get("type") in activity_types or activity.get("sport_type") in activity_types
         ]
 
+    def get_activity_description(self, activity_id: int) -> str:
+        """
+        Fetch the current description of a Strava activity.
+
+        Args:
+            activity_id: The Strava activity ID
+
+        Returns:
+            Description string, or "" if none set
+        """
+        details = self.get_activity_details(activity_id)
+        return details.get("description") or ""
+
+    def update_activity_description(self, activity_id: int, description: str) -> bool:
+        """
+        Update the description of a Strava activity.
+        Requires activity:write OAuth scope.
+
+        Args:
+            activity_id: The Strava activity ID
+            description: New description text
+
+        Returns:
+            True on success, False on failure (scope missing or other error)
+        """
+        if not self.access_token:
+            self.get_access_token()
+
+        url = f"{self.BASE_URL}/activities/{activity_id}"
+        headers = {"Authorization": f"Bearer {self.access_token}"}
+
+        response = requests.put(url, headers=headers, data={"description": description})
+
+        if response.status_code == 403:
+            print(
+                "  [WARN] Strava returned 403 — token is missing activity:write scope.\n"
+                "         Re-authorize at: https://www.strava.com/oauth/authorize"
+                f"?client_id={self.client_id}&redirect_uri=http://localhost"
+                "&response_type=code&scope=activity:read_all,activity:write\n"
+                "         Then update STRAVA_REFRESH_TOKEN in .env and GitHub Actions secrets."
+            )
+            return False
+
+        if not response.ok:
+            print(f"  [WARN] Strava description update failed ({response.status_code}): {response.text}")
+            return False
+
+        return True
+
     def get_notion_sport_type(self, strava_sport_type: str) -> str:
         """
         Convert Strava sport type to Notion sport type.

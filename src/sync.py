@@ -7,6 +7,9 @@ import sys
 from datetime import datetime, timedelta
 from typing import List, Dict
 
+from dotenv import load_dotenv
+load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
+
 try:
     from strava import StravaClient
     from notion import NotionClient
@@ -26,6 +29,39 @@ except ImportError:
     notion = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(notion)
     NotionClient = notion.NotionClient
+
+
+def _write_strava_description(strava_client, activity_id: int, description: str, mode: str) -> bool:
+    """
+    Write a planned workout description back to a Strava activity.
+
+    Args:
+        strava_client: Authenticated StravaClient instance
+        activity_id: Strava activity ID to update
+        description: Description text from the planned workout
+        mode: "empty_only" | "overwrite" | "append"
+
+    Returns:
+        True if the description was written, False otherwise
+    """
+    if mode == "overwrite":
+        return strava_client.update_activity_description(activity_id, description)
+
+    # Both empty_only and append need the current description first
+    current = strava_client.get_activity_description(activity_id)
+
+    if mode == "empty_only":
+        if current:
+            print(f"  ⓘ Strava description already set — skipping (STRAVA_DESCRIPTION_MODE=empty_only)")
+            return False
+        return strava_client.update_activity_description(activity_id, description)
+
+    if mode == "append":
+        combined = f"{current}\n\n---\n{description}" if current else description
+        return strava_client.update_activity_description(activity_id, combined)
+
+    print(f"  [WARN] Unknown STRAVA_DESCRIPTION_MODE '{mode}', skipping description write")
+    return False
 
 
 def sync_activities(days_back: int = 7, dry_run: bool = False) -> Dict[str, int]:
@@ -57,12 +93,16 @@ def sync_activities(days_back: int = 7, dry_run: bool = False) -> Dict[str, int]
     triathlon_activities = strava_client.filter_triathlon_activities(activities)
     print(f"Found {len(triathlon_activities)} triathlon activities (Swim, Bike, Run)")
     
+    # Read description write-back mode
+    description_mode = os.getenv("STRAVA_DESCRIPTION_MODE", "empty_only").lower()
+
     # Sync statistics
     stats = {
         "created": 0,
         "updated": 0,
         "skipped": 0,
-        "errors": 0
+        "errors": 0,
+        "descriptions_written": 0,
     }
     
     # Process each activity
@@ -120,6 +160,18 @@ def sync_activities(days_back: int = 7, dry_run: bool = False) -> Dict[str, int]
                 # Mark the planned activity as done
                 notion_client.mark_planned_as_done(planned_page_id)
                 print(f"  ✓ Marked planned activity as Done")
+
+                # Write planned description back to Strava
+                planned_desc = notion_client.get_planned_description(planned_activity)
+                if planned_desc:
+                    written = _write_strava_description(
+                        strava_client, activity_id, planned_desc, description_mode
+                    )
+                    if written:
+                        print(f"  ✓ Updated Strava description from planned workout")
+                        stats["descriptions_written"] += 1
+                else:
+                    print(f"  ⓘ Planned workout has no description to copy")
             else:
                 print(f"  ⓘ No matching planned activity found")
 
@@ -154,6 +206,7 @@ def main():
         print(f"  Updated: {stats['updated']}")
         print(f"  Skipped: {stats['skipped']}")
         print(f"  Errors: {stats['errors']}")
+        print(f"  Strava descriptions written: {stats['descriptions_written']}")
         print("=" * 60)
         
         # Exit with error code if there were errors
