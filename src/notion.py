@@ -346,7 +346,7 @@ class NotionClient:
                 }
 
         # Cycling-specific fields
-        elif strava_sport_type == "Ride":
+        elif strava_sport_type in ("Ride", "VirtualRide"):
             # Average speed (km/h)
             if "average_speed" in sport_fields and activity.get("distance") and activity.get("moving_time"):
                 if activity["moving_time"] > 0:
