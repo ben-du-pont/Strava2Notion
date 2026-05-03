@@ -313,13 +313,68 @@ def create_sessions(client: NotionClient, sessions: List[Dict], dry_run: bool, s
     print(f"{mode}Created: {created} | Skipped: {skipped} | Errors: {errors}")
 
 
+# ── List sessions ───────────────────────────────────────────────────────────
+
+def list_sessions(client: NotionClient, from_date: str, to_date: str) -> None:
+    """Query and print Planning DB sessions in a date range, with page IDs."""
+    filter_params = {
+        "and": [
+            {"property": "Date", "date": {"on_or_after": from_date}},
+            {"property": "Date", "date": {"on_or_before": to_date}},
+        ]
+    }
+    results = client.query_database(filter_params, database_id=client.planned_db_id)
+
+    if not results:
+        print(f"No sessions found between {from_date} and {to_date}.")
+        return
+
+    # Sort by date
+    def get_date(page):
+        return page.get("properties", {}).get("Date", {}).get("date", {}).get("start", "")
+
+    results.sort(key=get_date)
+    print(f"{'Date':<12}  {'Sport':<6}  {'Status':<10}  {'Name':<45}  ID")
+    print("─" * 110)
+    for page in results:
+        props = page.get("properties", {})
+        date = get_date(page)[:10]
+        sport = props.get("Sport relation", {}).get("select", {}).get("name", "—")
+        status = props.get("Selection status", {}).get("select", {}).get("name", "—")
+        name_parts = props.get("Name", {}).get("title", [])
+        name = "".join(p.get("text", {}).get("content", "") for p in name_parts)[:44]
+        page_id = page.get("id", "")
+        print(f"{date:<12}  {sport:<6}  {status:<10}  {name:<45}  {page_id}")
+
+    print(f"\nTotal: {len(results)} session(s)")
+
+
+# ── Delete sessions ─────────────────────────────────────────────────────────
+
+def delete_sessions(client: NotionClient, page_ids: List[str], dry_run: bool) -> None:
+    """Archive (delete) Planning DB pages by ID."""
+    for page_id in page_ids:
+        if dry_run:
+            print(f"  [DRY RUN] Would delete: {page_id}")
+            continue
+        try:
+            client.delete_page(page_id)
+            print(f"  [DELETED] {page_id}")
+        except Exception as e:
+            print(f"  [ERROR] {page_id}: {e}")
+
+
 # ── Main ────────────────────────────────────────────────────────────────────
 
 def main():
-    parser = argparse.ArgumentParser(description="Create planned workout sessions in Notion")
+    parser = argparse.ArgumentParser(description="Manage planned workout sessions in Notion")
     parser.add_argument("--discover", action="store_true", help="Print Planning DB schema and exit")
     parser.add_argument("--sessions", metavar="FILE", help="JSON file with sessions to create")
-    parser.add_argument("--dry-run", action="store_true", help="Print what would be created, no API writes")
+    parser.add_argument("--list", action="store_true", help="List sessions in a date range")
+    parser.add_argument("--from", dest="from_date", metavar="DATE", help="Start date (YYYY-MM-DD) for --list")
+    parser.add_argument("--to", dest="to_date", metavar="DATE", help="End date (YYYY-MM-DD) for --list")
+    parser.add_argument("--delete", nargs="+", metavar="PAGE_ID", help="Delete (archive) one or more sessions by page ID")
+    parser.add_argument("--dry-run", action="store_true", help="Preview without making API writes")
     args = parser.parse_args()
 
     token = os.getenv("NOTION_TOKEN")
@@ -334,6 +389,19 @@ def main():
 
     if args.discover:
         discover(token, planned_db_id)
+        return
+
+    client = NotionClient()
+
+    if args.list:
+        if not args.from_date or not args.to_date:
+            print("Error: --list requires --from DATE and --to DATE")
+            sys.exit(1)
+        list_sessions(client, args.from_date, args.to_date)
+        return
+
+    if args.delete:
+        delete_sessions(client, args.delete, dry_run=args.dry_run)
         return
 
     if not args.sessions:
@@ -362,9 +430,7 @@ def main():
     else:
         print()
 
-    # Init client
-    client = NotionClient()
-
+    # Init client already initialized above
     # Fetch schema once (needed to determine property types)
     print("Fetching Planning DB schema…")
     schema = get_database_schema(token, planned_db_id)

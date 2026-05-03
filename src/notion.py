@@ -139,6 +139,19 @@ class NotionClient:
         
         return response.json()
     
+    def delete_page(self, page_id: str) -> Dict:
+        """
+        Delete (archive) a page via the Notion API.
+        Note: the Notion API has no hard-delete endpoint — this archives the page,
+        which removes it from all database views. Archived pages can be restored
+        manually in Notion but are otherwise invisible.
+        """
+        url = f"{self.BASE_URL}/pages/{page_id}"
+        headers = self._get_headers()
+        response = requests.patch(url, headers=headers, json={"archived": True})
+        response.raise_for_status()
+        return response.json()
+
     def activity_to_properties(self, activity: Dict, notion_sport_type: str = None) -> tuple[Dict, str]:
         """
         Convert a Strava activity to Notion page properties with sport-specific fields.
@@ -441,9 +454,10 @@ class NotionClient:
         focus = extract_rich_text("Focus")
         notes = extract_rich_text("Notes for Coach / Self")
 
-        if focus and notes:
-            return f"{focus}\n{notes}"
-        return focus or notes
+        content = f"{focus}\n{notes}" if (focus and notes) else (focus or notes)
+        if not content:
+            return ""
+        return f"Claude Workout Description:\n{content}"
 
     def find_activity_by_strava_id(self, strava_id: int) -> Optional[Dict]:
         """
