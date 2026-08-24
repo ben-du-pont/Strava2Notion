@@ -171,7 +171,7 @@ def display_standard(a: dict) -> list[str]:
     suffer     = a.get("suffer_score")
     calories   = a.get("calories")
     device     = a.get("device_name")
-    description = a.get("description", "").strip()
+    description = (a.get("description") or "").strip()
     laps       = a.get("laps", [])
     temp       = a.get("average_temp")
 

@@ -32,3 +32,6 @@ Equipment/
 
 # macOS
 .DS_Store
+
+# Exported activity files (contain GPS traces)
+*.fit

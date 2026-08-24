@@ -127,7 +127,7 @@ common_fields:
   # ============================================================
 
   # Average temperature in Celsius
-  average_temp: "Temperature"
+  average_temp: "Temperature (°C)"
 
   # ============================================================
   # ACTIVITY FLAGS (Currently disabled)
@@ -351,6 +351,21 @@ options:
   # 1000 = convert to kilometers (default)
   # 1 = keep as meters (not recommended for run/bike, but could be useful for swim)
   distance_unit_divisor: 1000
+
+  # Strava description write-back, per sport.
+  #   overwrite  - always replace. Zwift supplies route names and
+  #                "Leveled up today", which are worth less than the plan text.
+  #   empty_only - only write when Strava has nothing. Protects Runna's own
+  #                session detail on runs, and Ben's own notes.
+  #   append     - keep what is there and add ours below.
+  #   false      - never write for this sport.
+  # Descriptions we wrote ourselves are always replaceable, so a re-sync can
+  # correct one left behind by a bad match even under empty_only.
+  # STRAVA_DESCRIPTION_MODE in .env overrides every sport when set.
+  strava_description_mode:
+    Bike: overwrite
+    Swim: overwrite
+    Run: empty_only
 
   # Time conversion (Strava provides time in seconds)
   # 60 = convert to minutes (default)
