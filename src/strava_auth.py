@@ -7,8 +7,9 @@ re-authorize with activity:write included, then the new refresh token is
 written back into .env.
 
 Usage:
-    cd src && python strava_auth.py           # opens the browser, waits for callback
-    cd src && python strava_auth.py --print   # don't touch .env, just print the token
+    cd src && python strava_auth.py   # opens the browser, waits for callback
+
+The refresh token is written to .env and never echoed to the terminal.
 
 Requires the Strava app's "Authorization Callback Domain" to be `localhost`
 (https://www.strava.com/settings/api).
@@ -122,13 +123,16 @@ def main():
     if "activity:write" not in granted:
         print("[WARN] activity:write was NOT granted — description write-back will still fail.")
 
-    if "--print" in sys.argv:
-        print(f"\nSTRAVA_REFRESH_TOKEN={refresh_token}")
-    else:
-        write_refresh_token(refresh_token)
-        print(f"\n✓ STRAVA_REFRESH_TOKEN updated in {os.path.normpath(ENV_PATH)}")
-        print("  Remember to update the GitHub Actions secret too:")
-        print(f"  gh secret set STRAVA_REFRESH_TOKEN --body '{refresh_token}'")
+    write_refresh_token(refresh_token)
+
+    # The token itself is never printed: terminal output ends up in screenshots,
+    # scrollback and CI logs. It goes to .env, and the command below reads it
+    # back from there rather than carrying it on a command line.
+    print(f"\n✓ STRAVA_REFRESH_TOKEN updated in {os.path.normpath(ENV_PATH)} "
+          f"(ends ...{refresh_token[-4:]})")
+    print("  Mirror it into GitHub Actions from the repository root with:")
+    print("  gh secret set STRAVA_REFRESH_TOKEN "
+          "--body \"$(grep '^STRAVA_REFRESH_TOKEN=' .env | cut -d= -f2-)\"")
 
 
 if __name__ == "__main__":
