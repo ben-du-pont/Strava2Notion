@@ -140,6 +140,7 @@ BLOCK_MAP = {
     "Triathlon Base Build": "Build 1",
     "HIM Race Block":       "Race Week",
     "Ironman Build":        "Build 2",
+    "Ironman-Barcelona":    "Build 2",
     "Race Week":            "Race Week",
 }
 

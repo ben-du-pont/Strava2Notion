@@ -31,7 +31,27 @@ except ImportError:
     NotionClient = notion.NotionClient
 
 
-def _write_strava_description(strava_client, activity_id: int, description: str, mode: str) -> bool:
+def _resolve_description_mode(config, sport_type: str) -> str:
+    """
+    Per-sport Strava description policy.
+
+    Bike and swim descriptions are worth nothing as they arrive — Zwift writes
+    route names and "Leveled up today" — so ours replaces them. Runs are left
+    alone when Strava already holds text, because that is usually Runna's own
+    session detail (or Ben's own note) and it is worth more than ours.
+
+    STRAVA_DESCRIPTION_MODE, if set, overrides every sport.
+    """
+    env_override = os.getenv("STRAVA_DESCRIPTION_MODE")
+    if env_override:
+        return env_override.lower()
+
+    per_sport = config.get_option("strava_description_mode", {}) or {}
+    return str(per_sport.get(sport_type, "empty_only")).lower()
+
+
+def _write_strava_description(strava_client, activity_id: int, description: str,
+                              mode: str, own_prefix: str = "") -> bool:
     """
     Write a planned workout description back to a Strava activity.
 
@@ -39,11 +59,17 @@ def _write_strava_description(strava_client, activity_id: int, description: str,
         strava_client: Authenticated StravaClient instance
         activity_id: Strava activity ID to update
         description: Description text from the planned workout
-        mode: "empty_only" | "overwrite" | "append"
+        mode: "overwrite" | "empty_only" | "append" | "false"
+        own_prefix: Marker identifying descriptions we wrote ourselves. Those are
+            always replaceable, so a re-sync can correct a previous bad match
+            even under empty_only.
 
     Returns:
         True if the description was written, False otherwise
     """
+    if mode in ("false", "none", "off"):
+        return False
+
     if mode == "overwrite":
         return strava_client.update_activity_description(activity_id, description)
 
@@ -51,8 +77,9 @@ def _write_strava_description(strava_client, activity_id: int, description: str,
     current = strava_client.get_activity_description(activity_id)
 
     if mode == "empty_only":
-        if current:
-            print(f"  ⓘ Strava description already set — skipping (STRAVA_DESCRIPTION_MODE=empty_only)")
+        ours = own_prefix and current.strip().startswith(own_prefix)
+        if current and not ours:
+            print(f"  ⓘ Strava description already set by another source — keeping it")
             return False
         return strava_client.update_activity_description(activity_id, description)
 
@@ -60,7 +87,7 @@ def _write_strava_description(strava_client, activity_id: int, description: str,
         combined = f"{current}\n\n---\n{description}" if current else description
         return strava_client.update_activity_description(activity_id, combined)
 
-    print(f"  [WARN] Unknown STRAVA_DESCRIPTION_MODE '{mode}', skipping description write")
+    print(f"  [WARN] Unknown description mode '{mode}', skipping description write")
     return False
 
 
@@ -93,8 +120,7 @@ def sync_activities(days_back: int = 7, dry_run: bool = False) -> Dict[str, int]
     triathlon_activities = strava_client.filter_triathlon_activities(activities)
     print(f"Found {len(triathlon_activities)} triathlon activities (Swim, Bike, Run)")
     
-    # Read description write-back mode
-    description_mode = os.getenv("STRAVA_DESCRIPTION_MODE", "empty_only").lower()
+    # Description write-back policy is resolved per sport (see _resolve_description_mode)
 
     # Sync statistics
     stats = {
@@ -142,8 +168,15 @@ def sync_activities(days_back: int = 7, dry_run: bool = False) -> Dict[str, int]
             print(f"  ✓ Created new activity page")
             stats["created"] += 1
 
-            # Try to find matching planned activity (using Notion sport type)
-            planned_activity = notion_client.find_planned_activity(notion_type, activity_date)
+            # Try to find matching planned activity (using Notion sport type).
+            # Distance and duration corroborate the date so a moved session
+            # cannot be linked to whichever plan happens to be free.
+            planned_activity = notion_client.find_planned_activity(
+                notion_type,
+                activity_date,
+                actual_distance_km=(activity.get("distance") or 0) / 1000,
+                actual_duration_min=(activity.get("moving_time") or 0) / 60,
+            )
 
             if planned_activity:
                 planned_page_id = planned_activity["id"]
@@ -165,7 +198,9 @@ def sync_activities(days_back: int = 7, dry_run: bool = False) -> Dict[str, int]
                 planned_desc = notion_client.get_planned_description(planned_activity)
                 if planned_desc:
                     written = _write_strava_description(
-                        strava_client, activity_id, planned_desc, description_mode
+                        strava_client, activity_id, planned_desc,
+                        _resolve_description_mode(notion_client.config, notion_type),
+                        own_prefix=notion_client.DESCRIPTION_PREFIX,
                     )
                     if written:
                         print(f"  ✓ Updated Strava description from planned workout")

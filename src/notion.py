@@ -12,6 +12,7 @@ class NotionClient:
     """Client for interacting with the Notion API."""
 
     BASE_URL = "https://api.notion.com/v1"
+    DESCRIPTION_PREFIX = "Claude Workout Description:"
     NOTION_VERSION = "2022-06-28"
 
     def __init__(self, token: Optional[str] = None, activities_db_id: Optional[str] = None,
@@ -118,6 +119,20 @@ class NotionClient:
 
         return response.json()
     
+    def get_page(self, page_id: str) -> Dict:
+        """
+        Fetch a single page.
+
+        Args:
+            page_id: The ID of the page to fetch
+
+        Returns:
+            Page object
+        """
+        response = requests.get(f"{self.BASE_URL}/pages/{page_id}", headers=self._get_headers())
+        response.raise_for_status()
+        return response.json()
+
     def update_page(self, page_id: str, properties: Dict) -> Dict:
         """
         Update an existing page in the Notion database.
@@ -457,7 +472,7 @@ class NotionClient:
         content = f"{focus}\n{notes}" if (focus and notes) else (focus or notes)
         if not content:
             return ""
-        return f"Claude Workout Description:\n{content}"
+        return f"{self.DESCRIPTION_PREFIX}\n{content}"
 
     def find_activity_by_strava_id(self, strava_id: int) -> Optional[Dict]:
         """
@@ -479,129 +494,159 @@ class NotionClient:
         results = self.query_database(filter_params, database_id=self.activities_db_id)
         return results[0] if results else None
 
-    def find_planned_activity(self, sport_type: str, date: str, max_days_diff: int = 3) -> Optional[Dict]:
-        """
-        Find a matching planned activity by sport type and date with smart matching.
+    # --- Planned-workout matching tuning -------------------------------------
+    # Agreement between a planned and an actual session is symmetric:
+    # min(r, 1/r) where r = planned / actual, so 0.5x and 2x score the same.
+    OFFSET_MIN_AGREEMENT = 0.75     # a match on a different day must corroborate hard
+    CONTESTED_MIN_AGREEMENT = 0.75  # ...and so must a same-day plan with rivals
+    UNCONTESTED_MIN_AGREEMENT = 0.40  # lone same-day plan: a short session is still that session
+    MIN_ACTIVITY_MINUTES = 5        # below this it is a junk/aborted recording
 
-        Matching logic:
-        1. First tries to find exact date match
-        2. If not found, searches for activities within ±max_days_diff days
-        3. Filters out workouts that are already marked as "Done"
-        4. Filters out workouts that already have linked training log entries
-        5. Returns the closest match by date
+    @staticmethod
+    def _week_bounds(day):
+        """Monday..Sunday containing `day` — the planning week."""
+        from datetime import timedelta
+        monday = day - timedelta(days=day.weekday())
+        return monday, monday + timedelta(days=6)
+
+    @staticmethod
+    def _agreement(planned_value: Optional[float], actual_value: Optional[float]) -> Optional[float]:
+        """Symmetric agreement in (0, 1], or None when the metric is unusable."""
+        if not planned_value or not actual_value or planned_value <= 0 or actual_value <= 0:
+            return None
+        ratio = planned_value / actual_value
+        return min(ratio, 1 / ratio)
+
+    def _plan_agreement(self, planned_workout: Dict, distance_km: Optional[float],
+                        duration_min: Optional[float]) -> Optional[float]:
+        """Best agreement across whichever of distance/duration the plan actually carries."""
+        props = planned_workout.get("properties", {})
+        scores = [
+            self._agreement(props.get("Planned Distance (km)", {}).get("number"), distance_km),
+            self._agreement(props.get("Planned Duration (min)", {}).get("number"), duration_min),
+        ]
+        scores = [s for s in scores if s is not None]
+        return max(scores) if scores else None
+
+    def find_planned_activity(self, sport_type: str, date: str,
+                              actual_distance_km: Optional[float] = None,
+                              actual_duration_min: Optional[float] = None,
+                              max_days_diff: int = 3) -> Optional[Dict]:
+        """
+        Find the planned workout an activity corresponds to.
+
+        Sport and date narrow the field; distance/duration decide. The rule is
+        biased towards refusing rather than guessing, because a wrong link marks
+        the wrong session Done and pushes every later activity onto the next
+        free plan — a cascade that ran for nine days in August 2026.
+
+        1. Candidates = same sport, same Mon-Sun planning week, not Done, not linked.
+        2. Activities under MIN_ACTIVITY_MINUTES never match (junk recordings).
+        3. Ranked by date distance, then by agreement — agreement breaks ties that
+           the old `min()` resolved by Notion's arbitrary result order.
+        4. Each candidate must clear an agreement floor:
+             - different day            -> OFFSET_MIN_AGREEMENT
+             - same day, rivals present -> CONTESTED_MIN_AGREEMENT
+             - same day, sole candidate -> UNCONTESTED_MIN_AGREEMENT
+           A shortened session on its own planned day is still that session; a
+           50% shortfall against a plan on another day is a different session.
+        5. A plan carrying neither distance nor duration can only match same-day.
 
         Args:
-            sport_type: The sport type (Bike, Run, Swim) - already converted from Strava format
-            date: The activity date in ISO 8601 format
-            max_days_diff: Maximum number of days difference to search (default: 3)
+            sport_type: Notion sport type (Bike, Run, Swim) — already converted
+            date: Activity date, ISO 8601
+            actual_distance_km: Actual distance in km, for corroboration
+            actual_duration_min: Actual moving time in minutes, for corroboration
+            max_days_diff: Retained for compatibility; the window is the planning week
 
         Returns:
-            Notion page object if found, None otherwise
+            The planned workout page, or None when nothing corroborates.
         """
-        from datetime import datetime, timedelta
+        from datetime import datetime
 
-        # Extract just the date part (YYYY-MM-DD) from ISO 8601 datetime
-        date_only = date.split("T")[0] if "T" in date else date
-        activity_date = datetime.fromisoformat(date_only)
-
-        # Step 1: Try exact date match first
-        filter_params = {
-            "and": [
-                {
-                    "property": "Sport relation",
-                    "select": {
-                        "equals": sport_type
-                    }
-                },
-                {
-                    "property": "Date",
-                    "date": {
-                        "equals": date_only
-                    }
-                }
-            ]
-        }
-
-        results = self.query_database(filter_params, database_id=self.planned_db_id)
-
-        # Filter out already completed/linked workouts
-        available_results = self._filter_available_planned_workouts(results)
-
-        if available_results:
-            return available_results[0]
-
-        # Step 2: Search within date range (±max_days_diff days)
-
-        start_date = (activity_date - timedelta(days=max_days_diff)).isoformat()
-        end_date = (activity_date + timedelta(days=max_days_diff)).isoformat()
-
-        filter_params = {
-            "and": [
-                {
-                    "property": "Sport relation",
-                    "select": {
-                        "equals": sport_type
-                    }
-                },
-                {
-                    "property": "Date",
-                    "date": {
-                        "on_or_after": start_date
-                    }
-                },
-                {
-                    "property": "Date",
-                    "date": {
-                        "on_or_before": end_date
-                    }
-                }
-            ]
-        }
-
-        results = self.query_database(filter_params, database_id=self.planned_db_id)
-
-        # Filter out already completed/linked workouts
-        available_results = self._filter_available_planned_workouts(results)
-
-        if not available_results:
+        if actual_duration_min is not None and actual_duration_min < self.MIN_ACTIVITY_MINUTES:
+            print(f"  ⓘ Activity under {self.MIN_ACTIVITY_MINUTES}min — not matching to a plan")
             return None
 
-        # Step 3: Find the closest match by date
-        def get_date_diff(planned_workout):
-            """Calculate absolute difference in days between planned and actual activity."""
-            planned_date_str = planned_workout.get("properties", {}).get("Date", {}).get("date", {}).get("start", "")
+        date_only = date.split("T")[0] if "T" in date else date
+        activity_date = datetime.fromisoformat(date_only).date()
+        week_start, week_end = self._week_bounds(activity_date)
+
+        filter_params = {
+            "and": [
+                {"property": "Sport relation", "select": {"equals": sport_type}},
+                {"property": "Date", "date": {"on_or_after": week_start.isoformat()}},
+                {"property": "Date", "date": {"on_or_before": week_end.isoformat()}},
+            ]
+        }
+        available = self._filter_available_planned_workouts(
+            self.query_database(filter_params, database_id=self.planned_db_id)
+        )
+        if not available:
+            return None
+
+        candidates = []
+        for workout in available:
+            planned_date_str = workout.get("properties", {}).get("Date", {}).get("date", {}).get("start", "")
             if not planned_date_str:
-                return float('inf')
-            planned_date = datetime.fromisoformat(planned_date_str.split("T")[0])
-            return abs((planned_date - activity_date).days)
+                continue
+            planned_date = datetime.fromisoformat(planned_date_str.split("T")[0]).date()
+            candidates.append({
+                "workout": workout,
+                "date": planned_date,
+                "day_diff": abs((planned_date - activity_date).days),
+                "agreement": self._plan_agreement(workout, actual_distance_km, actual_duration_min),
+            })
 
-        closest_match = min(available_results, key=get_date_diff)
-        days_diff = get_date_diff(closest_match)
+        same_day_count = sum(1 for c in candidates if c["day_diff"] == 0)
+        candidates.sort(key=lambda c: (c["day_diff"], -(c["agreement"] if c["agreement"] is not None else 0)))
 
-        planned_date = closest_match.get("properties", {}).get("Date", {}).get("date", {}).get("start", "")
-        print(f"  ⓘ Matched planned workout on {planned_date} ({days_diff} day(s) offset)")
+        for cand in candidates:
+            agreement, day_diff = cand["agreement"], cand["day_diff"]
 
-        return closest_match
+            if agreement is None:
+                # Nothing to corroborate with — only trust an exact-date hit.
+                if day_diff == 0:
+                    return cand["workout"]
+                continue
+
+            if day_diff == 0:
+                floor = (self.CONTESTED_MIN_AGREEMENT if same_day_count > 1
+                         else self.UNCONTESTED_MIN_AGREEMENT)
+            else:
+                floor = self.OFFSET_MIN_AGREEMENT
+
+            if agreement >= floor:
+                if day_diff:
+                    print(f"  ⓘ Matched planned workout on {cand['date'].isoformat()} "
+                          f"({day_diff} day(s) offset, agreement {agreement:.2f})")
+                return cand["workout"]
+
+        print("  ⓘ No planned workout corroborated by distance/duration — left unlinked")
+        return None
+
+    # "Skipped" is only ever set by hand, so it is a deliberate statement that
+    # the session did not happen — never match an activity to one.
+    UNAVAILABLE_STATUSES = ("Done", "Skipped")
 
     def _filter_available_planned_workouts(self, workouts: List[Dict]) -> List[Dict]:
         """
-        Filter out planned workouts that are already completed or linked.
+        Filter out planned workouts that are unavailable for matching.
 
         Args:
             workouts: List of planned workout page objects
 
         Returns:
-            List of available (not done, not linked) planned workouts
+            List of available (not done, not skipped, not linked) planned workouts
         """
         available = []
 
         for workout in workouts:
             properties = workout.get("properties", {})
 
-            # Check if status is "Done"
             status = properties.get("Selection status", {}).get("select", {})
-            if status and status.get("name") == "Done":
-                continue  # Skip - already marked as done
+            if status and status.get("name") in self.UNAVAILABLE_STATUSES:
+                continue  # Skip - already resolved (done, or deliberately skipped)
 
             # Check if there are already linked training log entries
             relations = properties.get("Training Log Entries", {}).get("relation", [])
@@ -612,12 +657,32 @@ class NotionClient:
 
         return available
 
+    @staticmethod
+    def _same_page(a: str, b: str) -> bool:
+        """Notion hands back dashed ids but accepts either form."""
+        return a.replace("-", "").lower() == b.replace("-", "").lower()
+
+    def _append_relation(self, page_id: str, property_name: str, related_id: str) -> Dict:
+        """
+        Add a relation while preserving the ones already there.
+
+        Writing `"relation": [{"id": ...}]` replaces the whole array, which
+        silently evicted the previous entry — a brick could never hold both its
+        bike and its run, and the two sides of a link could drift apart.
+        """
+        page = self.get_page(page_id)
+        existing = page.get("properties", {}).get(property_name, {}).get("relation", [])
+        ids = [r["id"] for r in existing]
+
+        if any(self._same_page(i, related_id) for i in ids):
+            return page  # already linked
+
+        ids.append(related_id)
+        return self.update_page(page_id, {property_name: {"relation": [{"id": i} for i in ids]}})
+
     def link_activity_to_planned(self, activity_page_id: str, planned_page_id: str) -> Dict:
         """
-        Link activity to planned workout by updating the Planning Database.
-
-        This updates the Planning Database entry with the activity's ID in the
-        "Training Log Entries" field.
+        Record the activity on the planned workout ("Training Log Entries").
 
         Args:
             activity_page_id: The ID of the activity page (in Training Log database)
@@ -626,23 +691,11 @@ class NotionClient:
         Returns:
             Updated Planning Database page object
         """
-        # Update the Planning Database with the activity ID
-        properties = {
-            "Training Log Entries": {
-                "relation": [
-                    {"id": activity_page_id}
-                ]
-            }
-        }
-
-        return self.update_page(planned_page_id, properties)
+        return self._append_relation(planned_page_id, "Training Log Entries", activity_page_id)
 
     def link_planned_to_activity(self, planned_page_id: str, activity_page_id: str) -> Dict:
         """
-        Link planned workout to activity by updating the Training Log.
-
-        This updates the Training Log entry with the planned workout's ID in the
-        "Linked Planned Workout" field.
+        Record the planned workout on the activity ("Linked Planned Workout").
 
         Args:
             planned_page_id: The ID of the planned workout page (in Planning Database)
@@ -651,16 +704,7 @@ class NotionClient:
         Returns:
             Updated Training Log page object
         """
-        # Update the Training Log with the planned workout ID
-        properties = {
-            "Linked Planned Workout": {
-                "relation": [
-                    {"id": planned_page_id}
-                ]
-            }
-        }
-
-        return self.update_page(activity_page_id, properties)
+        return self._append_relation(activity_page_id, "Linked Planned Workout", planned_page_id)
 
     def mark_planned_as_done(self, planned_page_id: str) -> Dict:
         """
